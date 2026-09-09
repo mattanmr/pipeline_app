@@ -1,0 +1,4 @@
+# No external dependencies.
+#
+# Everything in this app runs on the Python 3.10+ standard library:
+# json, os, shutil, pathlib, argparse, tkinter, datetime.

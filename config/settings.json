@@ -1,0 +1,14 @@
+{
+  "_comment": "Local, per-machine configuration. Treat this as a template -- fill in real paths for your machine.",
+
+  "local_workspace_comment": "Fast local scratch disk. Artists work here directly (simulations, renders, DaVinci/Fusion caches) to avoid network bottlenecks.",
+  "local_workspace": "C:/PipelineWorkspace",
+
+  "shared_storage_comment": "Shared storage that published/promoted assets are copied to. Can be a NAS mount path or a synced Google Drive (Mirror mode) path.",
+  "shared_storage": "//NAS/Projects",
+
+  "schema_path": "config/pipeline_schema.json",
+
+  "max_publish_size_gb_comment": "Safety: refuse to publish if source folder is above this size (GB). 0 disables the check.",
+  "max_publish_size_gb": 0
+}

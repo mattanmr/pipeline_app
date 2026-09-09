@@ -1,0 +1,72 @@
+{
+  "version_format": "v{:03d}",
+  "project_info_file": "project_info.json",
+  "production_folder_shortcut": "Production_Folder",
+  "project_level_categories": {
+    "References": {
+      "tracking_file": "references_info.json"
+    },
+    "Client_Materials": {
+      "tracking_file": "client_materials_info.json"
+    },
+    "Docs": {
+      "tracking_file": "docs_info.json"
+    }
+  },
+  "sequences": {
+    "dir_name": "Sequences",
+    "tracking_file": "sequence_info.json",
+    "cut_versions_dir": "cut_versions",
+    "cut_master_dir": "cut_master",
+    "shots": {
+      "dir_name": "Shots",
+      "tracking_file": "shot_info.json",
+      "cut_versions_dir": "cut_versions",
+      "cut_master_dir": "cut_master",
+      "categories": {
+        "Footage": {
+          "tracking_file": "footage_info.json"
+        },
+        "Animation": {
+          "tracking_file": "animation_info.json"
+        },
+        "Renders": {
+          "tracking_file": "renders_info.json"
+        },
+        "Effects": {
+          "tracking_file": "effects_info.json"
+        },
+        "Sound": {
+          "tracking_file": "sound_info.json"
+        }
+      },
+      "ai_generated": {
+        "dir_name": "AI_Generated",
+        "subtypes": {
+          "Images": {
+            "tracking_file": "ai_images_info.json",
+            "extra_fields": [
+              "model",
+              "prompt"
+            ]
+          },
+          "Video": {
+            "tracking_file": "ai_video_info.json",
+            "extra_fields": [
+              "model",
+              "prompt",
+              "source"
+            ]
+          }
+        }
+      },
+      "client_material_usage_file": "client_material_usage.json"
+    }
+  },
+  "export": {
+    "dir_name": "Export",
+    "tracking_file": "export_info.json",
+    "versions_dir": "versions",
+    "master_dir": "master"
+  }
+}
