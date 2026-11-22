@@ -12,7 +12,7 @@ import re
 
 # Characters that are illegal (or awkward) in filenames on at least
 # one of Windows / macOS / Linux.
-_ILLEGAL_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_ILLEGAL_CHARS = re.compile(r'[<>:"/\\|?*()\x00-\x1f]')
 _MULTI_WHITESPACE = re.compile(r"\s+")
 _MULTI_UNDERSCORE = re.compile(r"_+")
 
@@ -47,6 +47,23 @@ def format_shot_name(sequence_name: str, shot_name: str) -> str:
     if shot.startswith(prefix):
         return shot
     return f"{prefix}{shot}"
+
+
+def rename_shot_for_sequence(shot_name: str, old_sequence: str, new_sequence: str) -> str:
+    """
+    Compute the new shot name when moving `shot_name` from `old_sequence`
+    to `new_sequence` (e.g. '01_001' from '01' to '02' -> '02_001',
+    'hallway_001' from 'hallway' to 'lobby' -> 'lobby_001').
+    """
+    old_seq = sanitize_name(old_sequence)
+    new_seq = sanitize_name(new_sequence)
+    shot = sanitize_name(shot_name)
+    old_prefix = f"{old_seq}_"
+    if shot.startswith(old_prefix) and len(shot) > len(old_prefix):
+        base_shot = shot[len(old_prefix):]
+    else:
+        base_shot = shot
+    return format_shot_name(new_seq, base_shot)
 
 
 def sanitize_filename(filename: str) -> str:

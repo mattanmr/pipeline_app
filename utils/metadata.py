@@ -23,7 +23,7 @@ def read_json(path: str | Path) -> dict[str, Any]:
 def write_json(path: str | Path, data: dict[str, Any]) -> None:
     """
     Write JSON atomically: write to a temp file in the same directory,
-    then replace — so a crash mid-write never corrupts the tracking
+    then replace -- so a crash mid-write never corrupts the tracking
     file (these are small, but they're load-bearing for the pipeline).
     """
     path = Path(path)
@@ -63,6 +63,6 @@ def make_source_ref(category: str, version: str) -> dict:
     """
     A pointer used in composition records (shot_info.json,
     sequence_info.json, export_info.json, ai_video_info.json 'source').
-    e.g. {"category": "Footage", "version": "v002"}
+    e.g. {"category": "comp", "version": "v002"}
     """
     return {"category": category, "version": version}

@@ -1,19 +1,9 @@
 """
 main.py
 
-CLI entry point. This is the thin layer Phase 1-2 are tested through
-before the GUI (Phase 3) exists. Every subcommand maps directly onto
-a function in core/manager.py or core/versioning.py – the CLI itself
-holds no pipeline logic.
-
-Examples:
-    python main.py init-project "My Show" --root ./workspace
-    python main.py create-sequence "My Show" 01 --root ./workspace
-    python main.py create-shot "My Show" 01 001 --root ./workspace
-    python main.py publish "My Show" 01 01_001 comp ./scratch/comp_v1 --root ./workspace
-    python main.py record-shot-cut "My Show" 01 01_001 --root ./workspace \
-        --source comp:v001 --source FX:v002 --source generated:v001
-    python main.py tree "My Show" --root ./workspace
+CLI entry point. Every subcommand maps directly onto a function in
+core/manager.py or core/versioning.py – the CLI itself holds no
+pipeline logic.
 """
 
 from __future__ import annotations
@@ -62,11 +52,43 @@ def cmd_create_sequence(args):
     print(f"Created sequence: {seq_root}")
 
 
+def cmd_delete_sequence(args):
+    schema = manager.load_schema(args.schema)
+    project_root = Path(args.root) / args.project_name
+    moved = manager.delete_sequence(
+        project_root,
+        args.sequence_name,
+        schema,
+        shots_to_move=args.move_shots or None,
+        target_sequence=args.target_sequence,
+    )
+    if moved:
+        print(f"Moved {len(moved)} shot(s) to '{args.target_sequence}': {[p.name for p in moved]}")
+    print(f"Deleted sequence: {args.sequence_name}")
+
+
 def cmd_create_shot(args):
     schema = manager.load_schema(args.schema)
     project_root = Path(args.root) / args.project_name
     shot_root = manager.create_shot(project_root, args.sequence_name, args.shot_name, schema)
     print(f"Created shot: {shot_root}")
+
+
+def cmd_delete_shot(args):
+    schema = manager.load_schema(args.schema)
+    project_root = Path(args.root) / args.project_name
+    manager.delete_shot(project_root, args.sequence_name, args.shot_name, schema)
+    print(f"Deleted shot: {args.shot_name} from {args.sequence_name}")
+
+
+def cmd_move_shots(args):
+    schema = manager.load_schema(args.schema)
+    project_root = Path(args.root) / args.project_name
+    moved = manager.move_shots(
+        project_root, args.source_sequence, args.target_sequence, args.shot_names, schema
+    )
+    for dst in moved:
+        print(f"Moved shot -> {dst}")
 
 
 def cmd_publish(args):
@@ -114,6 +136,21 @@ def cmd_publish(args):
         extra_fields=extra_fields or None,
     )
     print(f"Published {args.category} -> {version}")
+
+
+def cmd_ingest(args):
+    schema = manager.load_schema(args.schema)
+    project_root = Path(args.root) / args.project_name
+    cat_def = schema["project_level_categories"]["Client_Materials"]
+    cat_path = project_root / "Client_Materials"
+    version = versioning.publish_multiple(
+        cat_path,
+        args.source_paths,
+        cat_def["tracking_file"],
+        version_format=schema["version_format"],
+        sanitize_names=True,
+    )
+    print(f"Ingested {len(args.source_paths)} item(s) to Client_Materials -> {version}")
 
 
 def cmd_record_shot_cut(args):
@@ -176,12 +213,37 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--root", required=True)
     sp.set_defaults(func=cmd_create_sequence)
 
+    sp = sub.add_parser("delete-sequence")
+    sp.add_argument("project_name")
+    sp.add_argument("sequence_name")
+    sp.add_argument("--root", required=True)
+    sp.add_argument("--move-shots", nargs="*", default=[],
+                    help="Optional shot names to move before deleting the sequence")
+    sp.add_argument("--target-sequence", default=None,
+                    help="Target sequence (existing or new) to receive moved shots")
+    sp.set_defaults(func=cmd_delete_sequence)
+
     sp = sub.add_parser("create-shot")
     sp.add_argument("project_name")
     sp.add_argument("sequence_name")
     sp.add_argument("shot_name")
     sp.add_argument("--root", required=True)
     sp.set_defaults(func=cmd_create_shot)
+
+    sp = sub.add_parser("delete-shot")
+    sp.add_argument("project_name")
+    sp.add_argument("sequence_name")
+    sp.add_argument("shot_name")
+    sp.add_argument("--root", required=True)
+    sp.set_defaults(func=cmd_delete_shot)
+
+    sp = sub.add_parser("move-shot")
+    sp.add_argument("project_name")
+    sp.add_argument("source_sequence")
+    sp.add_argument("target_sequence")
+    sp.add_argument("shot_names", nargs="+", help="One or more shot names to move")
+    sp.add_argument("--root", required=True)
+    sp.set_defaults(func=cmd_move_shots)
 
     sp = sub.add_parser("publish")
     sp.add_argument("project_name")
@@ -196,6 +258,12 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Category:version this AI asset was generated from, "
                          "repeatable, e.g. --ai-source AI_Generated/Images:v003")
     sp.set_defaults(func=cmd_publish)
+
+    sp = sub.add_parser("ingest")
+    sp.add_argument("project_name")
+    sp.add_argument("source_paths", nargs="+", help="One or more files and/or folders to ingest")
+    sp.add_argument("--root", required=True)
+    sp.set_defaults(func=cmd_ingest)
 
     sp = sub.add_parser("record-shot-cut")
     sp.add_argument("project_name")

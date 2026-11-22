@@ -6,10 +6,6 @@ config/pipeline_schema.json, builds a shared AppContext, and lays
 out every screen from views.py as a tab in a ttk.Notebook.
 Persists settings (such as workspace_root) back to config/settings.json
 when changed and on window close.
-
-Run with:
-    python -m gui.app
-or via main.py's `gui` subcommand.
 """
 
 from __future__ import annotations
@@ -20,9 +16,6 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-# Allow running this file directly (python gui/app.py) as well as as
-# a module (python -m gui.app) by making sure the project root is on
-# sys.path either way.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
@@ -71,8 +64,8 @@ class PipelineApp(tk.Tk):
     def __init__(self, settings_path: Path = DEFAULT_SETTINGS_PATH):
         super().__init__()
         self.title("Pipeline Manager")
-        self.geometry("880x640")
-        self.minsize(720, 520)
+        self.geometry("900x660")
+        self.minsize(740, 540)
 
         self.settings_path = Path(settings_path)
         self.settings = _load_settings(self.settings_path)

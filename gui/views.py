@@ -3,21 +3,12 @@ gui/views.py
 
 The main GUI screens, implemented as Tkinter Frames.
 
-Architecture:
-- AppContext: single shared object carrying the schema, workspace_root,
-  and current selection (project / sequence / shot). Views query
-  AppContext for drop-down lists ("which projects exist on disk?") and
-  call core/ functions directly when an action button is pressed.
-- Views do NOT hold duplicate state -- switching tabs or changing
-  the selected project fires an event that lets other panels refresh
-  their drop-downs straight from disk.
-
 Panels:
 1. ProjectPanel      - create projects, set workspace root, open project/client folders
-2. SequenceShotPanel - create and select sequences and shots
+2. SequenceShotPanel - create, select, move, and delete sequences and shots
 3. PublishPanel      - publish new versions to a shot or sequence category (with AI fields)
-4. CutPanel          - record a shot or sequence cut from child versions
-5. IngestPanel       - publish project-level Client_Materials and open client folder
+4. CutPanel          - record a shot cut from child versions
+5. IngestPanel       - ingest multiple client files/folders into Client_Materials
 6. TreePanel         - collapsible tree view (ttk.Treeview) of selected project
 """
 
@@ -33,10 +24,10 @@ from typing import Callable
 
 from core import manager, versioning
 from utils.metadata import read_json, make_source_ref
-from utils.naming import sanitize_filename
 
 from gui.components import (
-    LabeledEntry, PathPicker, StatusBar, AIMetadataFrame, RefreshableCombobox,
+    LabeledEntry, PathPicker, MultiSourcePicker, StatusBar,
+    AIMetadataFrame, RefreshableCombobox, MoveShotsDialog, DeleteSequenceDialog,
 )
 
 
@@ -64,8 +55,6 @@ class AppContext:
         self.current_project: str | None = None
         self.current_sequence: str | None = None
         self.current_shot: str | None = None
-        # Fired whenever project/sequence/shot selection changes, so
-        # other tabs can refresh their dropdowns without polling.
         self.on_selection_changed: list = []
 
     def set_workspace_root(self, new_root: str | Path) -> None:
@@ -135,11 +124,6 @@ class AppContext:
         return names
 
     def publishable_category_names(self) -> list[str]:
-        """
-        Return available categories based on current selection:
-        - Shot-level categories (comp, FX, generated, AI_Generated/*) when a shot is selected
-        - Sequence-level categories (Sequence/edit, Sequence/sound, or edit, sound) when a sequence is selected
-        """
         names: list[str] = []
         if self.current_shot:
             names.extend(self.shot_category_names())
@@ -150,12 +134,6 @@ class AppContext:
         return names
 
     def category_path_and_tracking(self, category: str) -> tuple[Path, str]:
-        """
-        Resolve a category name:
-        - Sequence-level: "edit", "sound", or "Sequence/edit", "Sequence/sound"
-        - Shot-level: "comp", "FX", "generated", or "AI_Generated/Images", "AI_Generated/Video"
-        into (folder_path, tracking_filename).
-        """
         seq_def = self.schema["sequences"]
         seq_cats = seq_def.get("categories", {})
 
@@ -297,7 +275,7 @@ class ProjectPanel(ttk.Frame):
         except FileExistsError:
             self.status.error(f"A project named '{name}' already exists.")
             return
-        except Exception as exc:  # noqa: BLE001 -- surface any failure to the user
+        except Exception as exc:  # noqa: BLE001
             self.status.error(str(exc))
             return
         self.name_entry.clear()
@@ -311,7 +289,7 @@ class ProjectPanel(ttk.Frame):
 
 
 class SequenceShotPanel(ttk.Frame):
-    """Sequence + shot listing/creation for the currently selected project."""
+    """Sequence + shot listing, creation, moving, and deletion for the selected project."""
 
     def __init__(self, parent, ctx: AppContext, **kwargs):
         super().__init__(parent, padding=12, **kwargs)
@@ -324,29 +302,42 @@ class SequenceShotPanel(ttk.Frame):
         columns = ttk.Frame(self)
         columns.pack(fill="both", expand=True)
 
+        # Left column: Sequences
         seq_col = ttk.Frame(columns)
         seq_col.pack(side="left", fill="both", expand=True, padx=(0, 8))
         ttk.Label(seq_col, text="Sequences:").pack(anchor="w")
         self.seq_listbox = tk.Listbox(seq_col, height=8, exportselection=False)
         self.seq_listbox.pack(fill="both", expand=True)
         self.seq_listbox.bind("<<ListboxSelect>>", self._on_select_sequence)
+
         seq_new_row = ttk.Frame(seq_col)
         seq_new_row.pack(fill="x", pady=4)
         self.seq_name_entry = LabeledEntry(seq_new_row, "New:")
         self.seq_name_entry.pack(side="left", fill="x", expand=True)
         ttk.Button(seq_new_row, text="Create", command=self._create_sequence).pack(side="left", padx=4)
 
+        seq_actions = ttk.Frame(seq_col)
+        seq_actions.pack(fill="x", pady=(2, 0))
+        ttk.Button(seq_actions, text="🗑️ Delete Sequence...", command=self._delete_sequence).pack(side="left")
+
+        # Right column: Shots
         shot_col = ttk.Frame(columns)
         shot_col.pack(side="left", fill="both", expand=True, padx=(8, 0))
-        ttk.Label(shot_col, text="Shots:").pack(anchor="w")
-        self.shot_listbox = tk.Listbox(shot_col, height=8, exportselection=False)
+        ttk.Label(shot_col, text="Shots (Ctrl/Shift-click for multi-select):").pack(anchor="w")
+        self.shot_listbox = tk.Listbox(shot_col, height=8, selectmode="extended", exportselection=False)
         self.shot_listbox.pack(fill="both", expand=True)
         self.shot_listbox.bind("<<ListboxSelect>>", self._on_select_shot)
+
         shot_new_row = ttk.Frame(shot_col)
         shot_new_row.pack(fill="x", pady=4)
         self.shot_name_entry = LabeledEntry(shot_new_row, "New:")
         self.shot_name_entry.pack(side="left", fill="x", expand=True)
         ttk.Button(shot_new_row, text="Create", command=self._create_shot).pack(side="left", padx=4)
+
+        shot_actions = ttk.Frame(shot_col)
+        shot_actions.pack(fill="x", pady=(2, 0))
+        ttk.Button(shot_actions, text="⇄ Move Shot(s)...", command=self._move_shots).pack(side="left", padx=(0, 6))
+        ttk.Button(shot_actions, text="🗑️ Delete Shot(s)", command=self._delete_shots).pack(side="left")
 
         self.status = StatusBar(self)
         self.status.pack(fill="x", pady=(10, 0))
@@ -369,13 +360,14 @@ class SequenceShotPanel(ttk.Frame):
                 self.seq_listbox.selection_set(idx)
 
     def _refresh_shots(self):
+        prev_selected = {self.shot_listbox.get(i) for i in self.shot_listbox.curselection()}
         self.shot_listbox.delete(0, tk.END)
         if not self.ctx.current_project or not self.ctx.current_sequence:
             return
         shots = self.ctx.list_shots()
         for idx, name in enumerate(shots):
             self.shot_listbox.insert(tk.END, name)
-            if name == self.ctx.current_shot:
+            if name == self.ctx.current_shot or name in prev_selected:
                 self.shot_listbox.selection_set(idx)
 
     def _on_select_sequence(self, _event=None):
@@ -395,11 +387,15 @@ class SequenceShotPanel(ttk.Frame):
         sel = self.shot_listbox.curselection()
         if not sel:
             return
-        selected = self.shot_listbox.get(sel[0])
-        if selected != self.ctx.current_shot:
-            self.ctx.current_shot = selected
+        selected_shots = [self.shot_listbox.get(i) for i in sel]
+        primary = selected_shots[0]
+        if primary != self.ctx.current_shot:
+            self.ctx.current_shot = primary
             self.ctx.notify_selection_changed()
-        self.status.ok(f"Selected shot: {self.ctx.current_shot}")
+        if len(selected_shots) == 1:
+            self.status.ok(f"Selected shot: {primary}")
+        else:
+            self.status.ok(f"Selected {len(selected_shots)} shots (active: {primary})")
 
     def _create_sequence(self):
         if not self.ctx.current_project:
@@ -446,6 +442,120 @@ class SequenceShotPanel(ttk.Frame):
         self.ctx.notify_selection_changed()
         self.status.ok(f"Created shot '{shot_root.name}'.")
 
+    def _delete_shots(self):
+        if not self.ctx.current_project or not self.ctx.current_sequence:
+            self.status.error("Select a project and sequence first.")
+            return
+        sel = self.shot_listbox.curselection()
+        if not sel:
+            self.status.error("Select one or more shots to delete.")
+            return
+        shot_names = [self.shot_listbox.get(i) for i in sel]
+        confirm = messagebox.askyesno(
+            "Delete Shot(s)",
+            f"Permanently delete {len(shot_names)} shot(s) from '{self.ctx.current_sequence}'?\n\n"
+            + ", ".join(shot_names),
+            parent=self,
+        )
+        if not confirm:
+            return
+        try:
+            for s_name in shot_names:
+                manager.delete_shot(
+                    self.ctx.project_root(), self.ctx.current_sequence, s_name, self.ctx.schema
+                )
+        except Exception as exc:  # noqa: BLE001
+            self.status.error(f"Delete shot failed: {exc}")
+            return
+        self.ctx.current_shot = None
+        self.ctx.notify_selection_changed()
+        self.status.ok(f"Deleted {len(shot_names)} shot(s) from '{self.ctx.current_sequence}'.")
+
+    def _move_shots(self):
+        if not self.ctx.current_project or not self.ctx.current_sequence:
+            self.status.error("Select a project and sequence first.")
+            return
+        all_shots = self.ctx.list_shots()
+        if not all_shots:
+            self.status.error(f"Sequence '{self.ctx.current_sequence}' has no shots to move.")
+            return
+        preselected = [self.shot_listbox.get(i) for i in self.shot_listbox.curselection()]
+        if not preselected and self.ctx.current_shot:
+            preselected = [self.ctx.current_shot]
+        other_seqs = [s for s in self.ctx.list_sequences() if s != self.ctx.current_sequence]
+
+        dlg = MoveShotsDialog(self, self.ctx.current_sequence, all_shots, preselected, other_seqs)
+        self.wait_window(dlg)
+        if not dlg.result:
+            return
+        shots_to_move, target_seq = dlg.result
+        try:
+            moved_paths = manager.move_shots(
+                self.ctx.project_root(), self.ctx.current_sequence, target_seq,
+                shots_to_move, self.ctx.schema,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.status.error(f"Move shot(s) failed: {exc}")
+            return
+
+        new_names = [p.name for p in moved_paths]
+        self.ctx.current_sequence = moved_paths[0].parent.parent.name
+        self.ctx.current_shot = new_names[0]
+        self.ctx.notify_selection_changed()
+        self.status.ok(
+            f"Moved {len(new_names)} shot(s) to '{self.ctx.current_sequence}': {', '.join(new_names)}"
+        )
+
+    def _delete_sequence(self):
+        if not self.ctx.current_project or not self.ctx.current_sequence:
+            self.status.error("Select a sequence to delete first.")
+            return
+        seq_name = self.ctx.current_sequence
+        shots = self.ctx.list_shots(seq_name)
+        shots_to_move: list[str] = []
+        target_seq: str | None = None
+
+        if shots:
+            other_seqs = [s for s in self.ctx.list_sequences() if s != seq_name]
+            dlg = DeleteSequenceDialog(self, seq_name, shots, other_seqs)
+            self.wait_window(dlg)
+            confirmed, shots_to_move, target_seq = dlg.result
+            if not confirmed:
+                return
+        else:
+            confirm = messagebox.askyesno(
+                "Delete Sequence",
+                f"Permanently delete empty sequence '{seq_name}'?",
+                parent=self,
+            )
+            if not confirm:
+                return
+
+        try:
+            moved_paths = manager.delete_sequence(
+                self.ctx.project_root(), seq_name, self.ctx.schema,
+                shots_to_move=shots_to_move or None,
+                target_sequence=target_seq,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.status.error(f"Delete sequence failed: {exc}")
+            return
+
+        if moved_paths:
+            self.ctx.current_sequence = moved_paths[0].parent.parent.name
+            self.ctx.current_shot = moved_paths[0].name
+            msg = (
+                f"Deleted sequence '{seq_name}' after moving {len(moved_paths)} shot(s) "
+                f"to '{self.ctx.current_sequence}'."
+            )
+        else:
+            self.ctx.current_sequence = None
+            self.ctx.current_shot = None
+            msg = f"Deleted sequence '{seq_name}'."
+
+        self.ctx.notify_selection_changed()
+        self.status.ok(msg)
+
 
 class PublishPanel(ttk.Frame):
     """Publish a new version into a shot or sequence category, with AI metadata when relevant."""
@@ -466,7 +576,6 @@ class PublishPanel(ttk.Frame):
         self.source_picker.pack(fill="x", pady=6)
 
         self.ai_frame = AIMetadataFrame(self)
-        # Packed/unpacked dynamically depending on the selected category.
 
         ttk.Button(self, text="Publish", command=self._publish).pack(anchor="w", pady=(8, 0))
 
@@ -636,9 +745,10 @@ class CutPanel(ttk.Frame):
 
 class IngestPanel(ttk.Frame):
     """
-    Phase 4: bring in a client-supplied file, publish it as a new
-    Client_Materials version at the project level (filename auto-
-    sanitized), then optionally record which shot used it.
+    Phase 4: bring in one or more client-supplied files, folders, or a
+    mix of both (Issue #7), publish them as a new Client_Materials
+    version at the project level (names auto-sanitized), and optionally
+    record which shot used it.
     """
 
     def __init__(self, parent, ctx: AppContext, **kwargs):
@@ -652,13 +762,12 @@ class IngestPanel(ttk.Frame):
         self.context_label.pack(side="left")
         ttk.Button(top_row, text="📂 Open Client Folder", command=self._open_client_folder).pack(side="right")
 
-        self.source_picker = PathPicker(self, "Client material (file or folder):", mode="any", width=45)
-        self.source_picker.pack(fill="x", pady=6)
-        self.source_picker.var.trace_add("write", self._update_preview)
-        self.preview_label = ttk.Label(self, text="", foreground="#555555")
-        self.preview_label.pack(anchor="w")
+        self.multi_picker = MultiSourcePicker(
+            self, label="Client materials (add multiple files, folders, or a mix):"
+        )
+        self.multi_picker.pack(fill="both", expand=True, pady=6)
 
-        ttk.Button(self, text="Publish to Client_Materials", command=self._publish).pack(anchor="w", pady=8)
+        ttk.Button(self, text="Publish to Client_Materials", command=self._publish).pack(anchor="w", pady=6)
 
         ttk.Separator(self).pack(fill="x", pady=8)
 
@@ -689,15 +798,6 @@ class IngestPanel(ttk.Frame):
         except Exception as exc:  # noqa: BLE001
             self.status.error(f"Could not open client folder: {exc}")
 
-    def _update_preview(self, *_args):
-        source = self.source_picker.get()
-        if source and Path(source).is_file():
-            self.preview_label.configure(text=f"Will be stored as: {sanitize_filename(Path(source).name)}")
-        elif source:
-            self.preview_label.configure(text=f"Folder will be copied as-is: {Path(source).name}")
-        else:
-            self.preview_label.configure(text="")
-
     def _refresh_versions(self):
         if not self.ctx.current_project:
             self.version_combo.set_values([])
@@ -714,24 +814,32 @@ class IngestPanel(ttk.Frame):
         if not self.ctx.current_project:
             self.status.error("Select a project first.")
             return
-        source = self.source_picker.get()
-        if not source or not Path(source).exists():
-            self.status.error("Choose a valid client material file or folder.")
+        sources = self.multi_picker.get_sources()
+        if not sources:
+            self.status.error("Add at least one client file or folder to ingest.")
+            return
+        missing = [s for s in sources if not Path(s).exists()]
+        if missing:
+            self.status.error(f"Source does not exist: {missing[0]}")
             return
 
         cat_path, tracking_file = self.ctx.project_level_category_path_and_tracking("Client_Materials")
         try:
-            version = versioning.publish(
-                cat_path, source, tracking_file,
+            version = versioning.publish_multiple(
+                cat_path,
+                sources,
+                tracking_file,
                 version_format=self.ctx.schema["version_format"],
+                sanitize_names=True,
             )
         except Exception as exc:  # noqa: BLE001
             self.status.error(f"Publish failed: {exc}")
             return
 
-        self.source_picker.clear()
+        count = len(sources)
+        self.multi_picker.clear()
         self._refresh_versions()
-        self.status.ok(f"Published Client_Materials -> {version}")
+        self.status.ok(f"Published {count} item(s) to Client_Materials -> {version}")
 
     def _record_usage(self):
         if not self.ctx.current_shot:
@@ -804,8 +912,6 @@ class TreePanel(ttk.Frame):
         shots_dir_name = self.ctx.schema["sequences"]["shots"]["dir_name"]
         for entry in entries:
             if entry.is_dir():
-                # Keep top-level Sequences/ and Shots/ containers expanded so sequences
-                # and shots are immediately visible while their internal subfolders stay collapsed.
                 should_open = (
                     (depth == 1 and entry.name == seq_dir_name)
                     or (depth == 2 and path.name == seq_dir_name)
@@ -820,7 +926,6 @@ class TreePanel(ttk.Frame):
 
     def _set_all_open(self, is_open: bool, parent_id: str = "") -> None:
         for item_id in self.tree.get_children(parent_id):
-            # Always keep the root project folder open when collapsing children
             if parent_id == "" and not is_open:
                 self.tree.item(item_id, open=True)
             else:

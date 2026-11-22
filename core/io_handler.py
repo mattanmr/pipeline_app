@@ -24,8 +24,13 @@ def _dir_size(path: Path) -> int:
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
 
+def source_size_bytes(path: str | Path) -> int:
+    p = Path(path)
+    return p.stat().st_size if p.is_file() else _dir_size(p)
+
+
 def _copy_file_with_progress(src: Path, dst: Path, total: int, done: int,
-                              callback: ProgressCallback, chunk_size: int = 8 * 1024 * 1024) -> int:
+                             callback: ProgressCallback, chunk_size: int = 8 * 1024 * 1024) -> int:
     dst.parent.mkdir(parents=True, exist_ok=True)
     with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
         while True:
@@ -36,8 +41,8 @@ def _copy_file_with_progress(src: Path, dst: Path, total: int, done: int,
             done += len(chunk)
             if callback:
                 callback(done, total)
-    shutil.copystat(src, dst)
-    return done
+        shutil.copystat(src, dst)
+        return done
 
 
 def safe_copy(source: str | Path, destination: str | Path,
@@ -55,7 +60,7 @@ def safe_copy(source: str | Path, destination: str | Path,
     if not source.exists():
         raise FileNotFoundError(f"Source does not exist: {source}")
 
-    total_bytes = source.stat().st_size if source.is_file() else _dir_size(source)
+    total_bytes = source_size_bytes(source)
     if max_size_gb and total_bytes > max_size_gb * (1024 ** 3):
         raise RuntimeError(
             f"Source is {total_bytes / (1024**3):.2f} GB, "
