@@ -4,7 +4,7 @@ core/manager.py
 Reads config/pipeline_schema.json and creates the physical directory
 tree + the initial (empty) tracking JSON files for a project, a
 sequence, or a shot. This is the only module that knows how the
-schema maps onto folders on disk — everything else (versioning,
+schema maps onto folders on disk – everything else (versioning,
 GUI, CLI) calls into this module rather than hardcoding paths.
 """
 
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from utils.metadata import write_json
-from utils.naming import sanitize_name
+from utils.naming import sanitize_name, format_shot_name
 
 
 def load_schema(schema_path: str | Path) -> dict[str, Any]:
@@ -36,7 +36,7 @@ def _make_versionable(unit_path: Path, tracking_file: str, extra_keys: dict | No
     """
     Create the standard versions/ + master/ + <tracking>.json trio
     inside `unit_path`. This is the repeating pattern used by every
-    simple category (References, Footage, Animation, ...).
+    simple category (References, edit, sound, comp, FX, generated, ...).
     """
     (unit_path / "versions").mkdir(parents=True, exist_ok=True)
     (unit_path / "master").mkdir(parents=True, exist_ok=True)
@@ -45,8 +45,8 @@ def _make_versionable(unit_path: Path, tracking_file: str, extra_keys: dict | No
     if not tracking_path.exists():
         payload = {
             "created": _now_iso(),
-            "current_master": None,   # e.g. "v003"
-            "versions": [],            # list of version records, newest last
+            "current_master": None,  # e.g. "v003"
+            "versions": [],          # list of version records, newest last
         }
         if extra_keys:
             payload["extra_fields"] = extra_keys
@@ -54,7 +54,7 @@ def _make_versionable(unit_path: Path, tracking_file: str, extra_keys: dict | No
 
 
 def _make_cut_unit(unit_path: Path, tracking_file: str, cut_versions_dir: str,
-                    cut_master_dir: str, extra_top_keys: dict | None = None) -> None:
+                   cut_master_dir: str, extra_top_keys: dict | None = None) -> None:
     """
     Create the cut_versions/ + cut_master/ + <tracking>.json trio used
     at the shot and sequence level to record *composition* (which
@@ -68,7 +68,7 @@ def _make_cut_unit(unit_path: Path, tracking_file: str, cut_versions_dir: str,
         payload = {
             "created": _now_iso(),
             "current_cut_master": None,
-            "cuts": [],   # list of {"version": "v00X", "sources": [...], "created": ...}
+            "cuts": [],  # list of {"version": "v00X", "sources": [...], "created": ...}
         }
         if extra_top_keys:
             payload.update(extra_top_keys)
@@ -76,7 +76,7 @@ def _make_cut_unit(unit_path: Path, tracking_file: str, cut_versions_dir: str,
 
 
 def create_project(root_path: str | Path, project_name: str, schema: dict[str, Any],
-                    production_folder_target: str | None = None) -> Path:
+                   production_folder_target: str | None = None) -> Path:
     """
     Create a new project tree under `root_path`, following `schema`.
     Returns the path to the created project root.
@@ -85,7 +85,7 @@ def create_project(root_path: str | Path, project_name: str, schema: dict[str, A
     project_root = Path(root_path) / project_name
     project_root.mkdir(parents=True, exist_ok=False)
 
-    # project_info.json — metadata, production-folder link, schema version
+    # project_info.json – metadata, production-folder link, schema version
     info_path = project_root / schema["project_info_file"]
     write_json(info_path, {
         "project_name": project_name,
@@ -96,8 +96,6 @@ def create_project(root_path: str | Path, project_name: str, schema: dict[str, A
     })
 
     # Shortcut placeholder to the (externally managed) production folder.
-    # Real OS shortcuts differ per platform; we drop a small pointer file
-    # so the link is at least discoverable everywhere.
     shortcut_name = schema["production_folder_shortcut"]
     shortcut_path = project_root / f"{shortcut_name}.link.json"
     write_json(shortcut_path, {
@@ -124,15 +122,15 @@ def create_project(root_path: str | Path, project_name: str, schema: dict[str, A
         write_json(export_tracking, {
             "created": _now_iso(),
             "current_master": None,
-            "masters": [],   # list of {"version": "v00X", "sources": [...], "created": ...}
+            "masters": [],  # list of {"version": "v00X", "sources": [...], "created": ...}
         })
 
     return project_root
 
 
 def create_sequence(project_root: str | Path, sequence_name: str,
-                     schema: dict[str, Any]) -> Path:
-    """Create a sequence folder (with its cut tracking) inside a project."""
+                    schema: dict[str, Any]) -> Path:
+    """Create a sequence folder (with its cut tracking and sequence categories) inside a project."""
     sequence_name = sanitize_name(sequence_name)
     seq_def = schema["sequences"]
     seq_root = Path(project_root) / seq_def["dir_name"] / sequence_name
@@ -143,18 +141,26 @@ def create_sequence(project_root: str | Path, sequence_name: str,
         tracking_file=seq_def["tracking_file"],
         cut_versions_dir=seq_def["cut_versions_dir"],
         cut_master_dir=seq_def["cut_master_dir"],
-        extra_top_keys={"shots": []},   # membership: which shots belong here
+        extra_top_keys={"shots": []},  # membership: which shots belong here
     )
+
+    # Sequence-level categories: edit, sound
+    for cat_name, cat_def in seq_def.get("categories", {}).items():
+        _make_versionable(seq_root / cat_name, cat_def["tracking_file"])
 
     (seq_root / seq_def["shots"]["dir_name"]).mkdir(parents=True, exist_ok=True)
     return seq_root
 
 
 def create_shot(project_root: str | Path, sequence_name: str, shot_name: str,
-                 schema: dict[str, Any]) -> Path:
-    """Create a shot folder (with all its categories) inside a sequence."""
+                schema: dict[str, Any]) -> Path:
+    """
+    Create a shot folder (with all its categories) inside a sequence.
+    Automatically prefixes the shot name with '<sequence_name>_' (e.g.
+    sequence '01' + shot '001' -> '01_001', 'hallway' + '001' -> 'hallway_001').
+    """
     sequence_name = sanitize_name(sequence_name)
-    shot_name = sanitize_name(shot_name)
+    shot_name = format_shot_name(sequence_name, shot_name)
 
     seq_def = schema["sequences"]
     shot_def = seq_def["shots"]
@@ -174,21 +180,22 @@ def create_shot(project_root: str | Path, sequence_name: str, shot_name: str,
         extra_top_keys={"parent_sequence": sequence_name},
     )
 
-    # Simple categories: Footage, Animation, Renders, Effects, Sound
+    # Shot-level categories: comp, FX, generated
     for cat_name, cat_def in shot_def["categories"].items():
         _make_versionable(shot_root / cat_name, cat_def["tracking_file"])
 
-    # AI_Generated/Images and AI_Generated/Video
-    ai_def = shot_def["ai_generated"]
-    ai_root = shot_root / ai_def["dir_name"]
-    for subtype_name, subtype_def in ai_def["subtypes"].items():
-        _make_versionable(
-            ai_root / subtype_name,
-            subtype_def["tracking_file"],
-            extra_keys={"fields": subtype_def["extra_fields"]},
-        )
+    # AI_Generated/Images and AI_Generated/Video (if present in schema)
+    if "ai_generated" in shot_def:
+        ai_def = shot_def["ai_generated"]
+        ai_root = shot_root / ai_def["dir_name"]
+        for subtype_name, subtype_def in ai_def["subtypes"].items():
+            _make_versionable(
+                ai_root / subtype_name,
+                subtype_def["tracking_file"],
+                extra_keys={"fields": subtype_def["extra_fields"]},
+            )
 
-    # client_material_usage.json — which Client_Materials version(s) used here
+    # client_material_usage.json – which Client_Materials version(s) used here
     usage_path = shot_root / shot_def["client_material_usage_file"]
     if not usage_path.exists():
         write_json(usage_path, {"created": _now_iso(), "usages": []})
@@ -207,4 +214,4 @@ def _register_shot_with_sequence(seq_root: Path, seq_tracking_file: str, shot_na
     shots = data.setdefault("shots", [])
     if shot_name not in shots:
         shots.append(shot_name)
-    write_json(tracking_path, data)
+        write_json(tracking_path, data)

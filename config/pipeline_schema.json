@@ -18,26 +18,28 @@
     "tracking_file": "sequence_info.json",
     "cut_versions_dir": "cut_versions",
     "cut_master_dir": "cut_master",
+    "categories": {
+      "edit": {
+        "tracking_file": "edit_info.json"
+      },
+      "sound": {
+        "tracking_file": "sound_info.json"
+      }
+    },
     "shots": {
       "dir_name": "Shots",
       "tracking_file": "shot_info.json",
       "cut_versions_dir": "cut_versions",
       "cut_master_dir": "cut_master",
       "categories": {
-        "Footage": {
-          "tracking_file": "footage_info.json"
+        "comp": {
+          "tracking_file": "comp_info.json"
         },
-        "Animation": {
-          "tracking_file": "animation_info.json"
+        "FX": {
+          "tracking_file": "fx_info.json"
         },
-        "Renders": {
-          "tracking_file": "renders_info.json"
-        },
-        "Effects": {
-          "tracking_file": "effects_info.json"
-        },
-        "Sound": {
-          "tracking_file": "sound_info.json"
+        "generated": {
+          "tracking_file": "generated_info.json"
         }
       },
       "ai_generated": {
