@@ -1,8 +1,8 @@
 {
   "_comment": "Local, per-machine configuration. Treat this as a template -- fill in real paths for your machine.",
   "local_workspace_comment": "Fast local scratch disk. Artists work here directly (simulations, renders, DaVinci/Premiere project files).",
-  "local_workspace": "C:/PipelineWorkspace",
-  "workspace_root": "C:/PipelineWorkspace",
+  "local_workspace": "G:\\.shortcut-targets-by-id\\1amx3Us7XaLh3J8pJEMdp6WM8BA9HS3Jw\\Orpan Cloud\\Projects",
+  "workspace_root": "G:\\.shortcut-targets-by-id\\1amx3Us7XaLh3J8pJEMdp6WM8BA9HS3Jw\\Orpan Cloud\\Projects",
   "shared_storage_comment": "Shared storage that published/promoted assets are copied to. Can be a NAS mount path or server share.",
   "shared_storage": "//NAS/Projects",
   "schema_path": "config/pipeline_schema.json",
