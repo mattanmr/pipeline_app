@@ -13,6 +13,7 @@ single files and whole directories (image sequences).
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Callable, Optional
@@ -20,12 +21,27 @@ from typing import Callable, Optional
 ProgressCallback = Optional[Callable[[int, int], None]]  # (done, total) in bytes
 
 
+def _is_link(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    isjunction = getattr(os.path, "isjunction", None)
+    return bool(isjunction and isjunction(path))
+
+
 def _dir_size(path: Path) -> int:
-    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+    total = 0
+    for f in path.rglob("*"):
+        if _is_link(f):
+            raise ValueError(f"Symbolic links are not allowed in source directories: {f}")
+        if f.is_file():
+            total += f.stat().st_size
+    return total
 
 
 def source_size_bytes(path: str | Path) -> int:
     p = Path(path)
+    if _is_link(p):
+        raise ValueError(f"Symbolic links are not allowed: {p}")
     return p.stat().st_size if p.is_file() else _dir_size(p)
 
 
@@ -59,6 +75,8 @@ def safe_copy(source: str | Path, destination: str | Path,
     destination = Path(destination)
     if not source.exists():
         raise FileNotFoundError(f"Source does not exist: {source}")
+    if _is_link(source):
+        raise ValueError(f"Symbolic links are not allowed: {source}")
 
     total_bytes = source_size_bytes(source)
     if max_size_gb and total_bytes > max_size_gb * (1024 ** 3):
@@ -80,6 +98,8 @@ def safe_copy(source: str | Path, destination: str | Path,
     else:
         staging.mkdir(parents=True, exist_ok=True)
         for item in sorted(source.rglob("*")):
+            if _is_link(item):
+                raise ValueError(f"Symbolic links are not allowed in source directories: {item}")
             if item.is_dir():
                 continue
             rel = item.relative_to(source)

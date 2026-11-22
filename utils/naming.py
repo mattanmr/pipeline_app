@@ -25,6 +25,8 @@ def sanitize_name(name: str) -> str:
     for actual client files.
     """
     name = name.strip()
+    if name in {".", ".."}:
+        raise ValueError("Name cannot be '.' or '..'.")
     name = _ILLEGAL_CHARS.sub("", name)
     name = _MULTI_WHITESPACE.sub("_", name)
     name = _MULTI_UNDERSCORE.sub("_", name)

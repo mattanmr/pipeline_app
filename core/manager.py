@@ -217,11 +217,19 @@ def delete_shot(project_root: str | Path, sequence_name: str, shot_name: str,
     seq_def = schema["sequences"]
     shot_def = seq_def["shots"]
 
-    seq_root = Path(project_root) / seq_def["dir_name"] / sequence_name
+    project_root = Path(project_root)
+    sequences_dir = (project_root / seq_def["dir_name"]).resolve()
+    seq_root = (sequences_dir / sequence_name).resolve()
+    if seq_root.parent != sequences_dir:
+        raise ValueError("Invalid sequence name.")
     if not seq_root.exists():
         raise FileNotFoundError(f"Sequence does not exist: {seq_root}")
 
     shot_root = _resolve_existing_shot_root(seq_root, sequence_name, shot_name, shot_def["dir_name"])
+    shots_dir = (seq_root / shot_def["dir_name"]).resolve()
+    shot_root = shot_root.resolve()
+    if shot_root.parent != shots_dir:
+        raise ValueError("Invalid shot name.")
     actual_shot_name = shot_root.name
     shutil.rmtree(shot_root)
     _unregister_shot_from_sequence(seq_root, seq_def["tracking_file"], actual_shot_name)
@@ -352,7 +360,10 @@ def delete_sequence(project_root: str | Path, sequence_name: str,
     project_root = Path(project_root)
     seq_name = sanitize_name(sequence_name)
     seq_def = schema["sequences"]
-    seq_root = project_root / seq_def["dir_name"] / seq_name
+    sequences_dir = (project_root / seq_def["dir_name"]).resolve()
+    seq_root = (sequences_dir / seq_name).resolve()
+    if seq_root.parent != sequences_dir:
+        raise ValueError("Invalid sequence name.")
     if not seq_root.exists():
         raise FileNotFoundError(f"Sequence does not exist: {seq_root}")
 
